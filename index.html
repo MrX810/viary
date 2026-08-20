@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Video-Tagebuch</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        /* ========== CSS VARIABLES ========== */
+        :root {
+            --bg-primary: #0d0d12;
+            --bg-secondary: #16161f;
+            --bg-card: #1e1e2a;
+            --bg-card-hover: #28283a;
+            --text-primary: #f5f5f7;
+            --text-secondary: #8e8e93;
+            --text-muted: #636366;
+            --accent: #f1c40f;
+            --accent-dark: #d4a800;
+            --glass-bg: rgba(255,255,255,0.05);
+            --glass-border: rgba(255,255,255,0.08);
+            --shadow: 0 8px 32px rgba(0,0,0,0.5);
+            --radius: 16px;
+            --radius-sm: 10px;
+            --transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+            --transition-smooth: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif; }
+        body { background: var(--bg-primary); color: var(--text-primary); height: 100vh; overflow: hidden; touch-action: manipulation; }
+
+        /* ===== APP CONTAINER ===== */
+        #app { display: flex; flex-direction: column; height: 100%; max-width: 430px; margin: 0 auto; width: 100%; background: var(--bg-primary); position: relative; overflow: hidden; }
+
+        /* ===== HEADER ===== */
+        .header { padding: 14px 20px 10px; display: flex; justify-content: space-between; align-items: center; background: rgba(13,13,18,0.92); backdrop-filter: blur(20px); border-bottom: 1px solid var(--glass-border); flex-shrink: 0; z-index: 20; }
+        .header h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; background: linear-gradient(135deg, #f5b041, #f1c40f); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .header-actions { display: flex; gap: 8px; }
+        .header-actions button { background: var(--glass-bg); backdrop-filter: blur(10px); border: 1px solid var(--glass-border); color: var(--text-secondary); padding: 6px 14px; border-radius: 30px; font-size: 12px; font-weight: 500; cursor: pointer; transition: var(--transition); }
+        .header-actions button:active { transform: scale(0.94); background: rgba(255,255,255,0.1); }
+
+        /* ===== VIEWS ===== */
+        .view { flex: 1; overflow-y: auto; display: none; flex-direction: column; -webkit-overflow-scrolling: touch; position: relative; padding-bottom: 8px; }
+        .view.active { display: flex; animation: viewFadeIn 0.35s ease; }
+        @keyframes viewFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* ===== KAMERA ===== */
+        #camera-view { padding: 0; background: #000; justify-content: center; align-items: center; position: relative; }
+        .camera-placeholder { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, #1a1a2e, #0d0d12); color: var(--text-muted); gap: 16px; }
+        .camera-placeholder span { font-size: 72px; opacity: 0.4; animation: pulseIcon 2s infinite; }
+        @keyframes pulseIcon { 0%,100% { opacity: 0.3; transform: scale(1); } 50% { opacity: 0.6; transform: scale(1.05); } }
+        .camera-placeholder p { font-size: 16px; font-weight: 400; letter-spacing: 0.3px; }
+        .video-preview { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: none; background: #000; }
+        .video-preview.active { display: block; }
+
+        .cam-overlay-btn {
+            position: absolute; top: 20px; right: 20px; z-index: 15;
+            background: rgba(0,0,0,0.6); backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.15); border-radius: 50%;
+            width: 48px; height: 48px; color: #fff; font-size: 22px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: var(--transition);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+        }
+        .cam-overlay-btn:active { transform: scale(0.88); background: rgba(255,255,255,0.15); }
+        .cam-overlay-btn.hidden { display: none; }
+
+        .camera-controls {
+            position: absolute; bottom: 40px; left: 0; right: 0;
+            display: flex; flex-direction: column; align-items: center; gap: 14px;
+            padding: 0 20px; z-index: 10; pointer-events: none;
+        }
+        .camera-controls > * { pointer-events: auto; }
+        .record-btn {
+            width: 80px; height: 80px; border-radius: 50%; background: #e74c3c; border: 4px solid rgba(255,255,255,0.3);
+            box-shadow: 0 0 40px rgba(231,76,60,0.4); transition: var(--transition); cursor: pointer;
+            display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; color: white;
+        }
+        .record-btn:active { transform: scale(0.9); }
+        .record-btn.recording { background: #2ecc71; box-shadow: 0 0 40px rgba(46,204,113,0.5); animation: pulseRecord 1.2s infinite; }
+        @keyframes pulseRecord { 0%,100% { transform: scale(1); box-shadow: 0 0 40px rgba(46,204,113,0.5); } 50% { transform: scale(1.04); box-shadow: 0 0 60px rgba(46,204,113,0.7); } }
+
+        .mood-selector { display: flex; gap: 24px; background: rgba(0,0,0,0.6); backdrop-filter: blur(16px); padding: 10px 20px; border-radius: 50px; border: 1px solid rgba(255,255,255,0.08); }
+        .mood-btn { font-size: 30px; background: none; border: none; cursor: pointer; filter: grayscale(1); opacity: 0.4; transition: var(--transition); }
+        .mood-btn.selected { filter: grayscale(0); opacity: 1; transform: scale(1.15); }
+        .mood-btn:active { transform: scale(1.3); }
+        .timer-badge { background: rgba(0,0,0,0.6); backdrop-filter: blur(12px); padding: 4px 16px; border-radius: 30px; font-size: 16px; font-variant-numeric: tabular-nums; color: #fff; border: 1px solid rgba(255,255,255,0.08); letter-spacing: 1px; }
+
+        /* ===== GALERIE (Premium) ===== */
+        #gallery-view { padding: 12px 16px 100px; background: var(--bg-primary); }
+        .gallery-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 0 4px; }
+        .gallery-header h2 { font-size: 18px; font-weight: 600; color: var(--text-primary); }
+        .gallery-filter select { background: var(--glass-bg); backdrop-filter: blur(10px); border: 1px solid var(--glass-border); color: var(--text-secondary); padding: 6px 14px; border-radius: 30px; font-size: 13px; cursor: pointer; appearance: none; -webkit-appearance: none; }
+        .gallery-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .gallery-item { position: relative; aspect-ratio: 9 / 16; background: var(--bg-card); border-radius: var(--radius); overflow: hidden; cursor: pointer; border: 1px solid var(--glass-border); transition: var(--transition); box-shadow: 0 2px 12px rgba(0,0,0,0.2); }
+        .gallery-item:active { transform: scale(0.96); }
+        .gallery-item video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+        .gallery-item .mood-emoji { position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); border-radius: 30px; padding: 2px 8px; font-size: 14px; }
+        .gallery-item .recap-badge { position: absolute; top: 6px; left: 6px; background: rgba(241,196,15,0.9); border-radius: 30px; padding: 2px 8px; font-size: 10px; font-weight: 700; color: #000; backdrop-filter: blur(4px); }
+        .gallery-item .delete-btn { position: absolute; top: 6px; right: 6px; background: rgba(231,76,60,0.85); backdrop-filter: blur(8px); border: none; color: #fff; border-radius: 50%; width: 26px; height: 26px; font-size: 14px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: var(--transition); z-index: 5; }
+        .gallery-item .delete-btn:active { transform: scale(0.85); }
+        .gallery-item .rel-date { position: absolute; bottom: 32px; left: 6px; background: rgba(0,0,0,0.6); backdrop-filter: blur(8px); border-radius: 30px; padding: 2px 8px; font-size: 10px; color: var(--text-secondary); }
+        .gallery-item .video-title { position: absolute; bottom: 6px; left: 6px; right: 50px; background: rgba(0,0,0,0.6); backdrop-filter: blur(8px); border-radius: 30px; padding: 2px 10px; font-size: 11px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%; }
+        .gallery-item .folder-badge { position: absolute; top: 30px; left: 6px; background: rgba(0,0,0,0.6); backdrop-filter: blur(8px); border-radius: 30px; padding: 1px 8px; font-size: 9px; color: var(--text-secondary); border: 1px solid var(--glass-border); }
+        .empty-state { grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 16px; }
+        .empty-state span { font-size: 48px; display: block; margin-bottom: 12px; opacity: 0.4; }
+
+        /* ===== KALENDER (Premium) ===== */
+        #calendar-view { padding: 12px 16px 100px; background: var(--bg-primary); }
+        .cal-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 0 16px; }
+        .cal-header h2 { font-size: 20px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; }
+        .cal-header button { background: var(--glass-bg); backdrop-filter: blur(10px); border: 1px solid var(--glass-border); color: var(--text-primary); font-size: 20px; cursor: pointer; padding: 4px 16px; border-radius: 30px; transition: var(--transition); }
+        .cal-header button:active { transform: scale(0.92); background: rgba(255,255,255,0.08); }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; }
+        .cal-grid .weekday { font-size: 12px; color: var(--text-muted); padding: 8px 0 4px; font-weight: 500; }
+        .cal-grid .day {
+            aspect-ratio: 1/1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            border-radius: 50%; font-size: 16px; cursor: pointer; position: relative; transition: var(--transition);
+            color: var(--text-secondary); background: transparent; border: 2px solid transparent;
+            font-weight: 500;
+        }
+        .cal-grid .day.today { border-color: #e74c3c; color: #fff; font-weight: 700; }
+        .cal-grid .day.has-video { color: var(--text-primary); }
+        .cal-grid .day.active { background: var(--accent); color: #000 !important; border-color: var(--accent); font-weight: 700; transform: scale(1.05); }
+        .cal-grid .day.active .dot { background: #000 !important; }
+        .cal-grid .day .dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 2px; }
+        .cal-grid .day .dot.happy { background: #2ecc71; }
+        .cal-grid .day .dot.neutral { background: #f1c40f; }
+        .cal-grid .day .dot.sad { background: #3498db; }
+        .cal-grid .day .dot.mixed { background: #9b59b6; }
+        .cal-grid .day:active { transform: scale(0.88); }
+        .cal-day-list { margin-top: 16px; border-top: 1px solid var(--glass-border); padding-top: 16px; display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; }
+        .cal-day-list .list-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--bg-card); border-radius: var(--radius-sm); cursor: pointer; transition: var(--transition); border: 1px solid var(--glass-border); }
+        .cal-day-list .list-item:active { transform: scale(0.97); background: var(--bg-card-hover); }
+        .cal-day-list .list-item video { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; background: #000; }
+        .cal-day-list .list-item .info { flex: 1; font-size: 14px; color: var(--text-primary); }
+        .cal-day-list .list-item .info .time { font-size: 12px; color: var(--text-muted); }
+        .cal-day-list .list-item .info .title { font-size: 13px; font-weight: 500; }
+        .cal-day-list .list-item .info .folder { font-size: 11px; color: var(--text-muted); background: var(--glass-bg); padding: 1px 10px; border-radius: 30px; display: inline-block; margin-top: 2px; }
+        .cal-empty { color: var(--text-muted); text-align: center; padding: 30px 0; font-size: 15px; }
+
+        /* ===== MODAL PLAYER ===== */
+        #playerModal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.96); z-index: 999; display: none; align-items: center; justify-content: center; flex-direction: column; backdrop-filter: blur(20px); }
+        #playerModal.active { display: flex; animation: modalFade 0.3s ease; }
+        @keyframes modalFade { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+        #playerModal video { width: 100%; max-height: 90%; background: #000; object-fit: contain; border-radius: 8px; }
+        .modal-close { position: absolute; top: 40px; right: 20px; font-size: 28px; color: #fff; background: rgba(255,255,255,0.08); backdrop-filter: blur(10px); width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 1px solid rgba(255,255,255,0.1); transition: var(--transition); }
+        .modal-close:active { transform: scale(0.88); background: rgba(255,255,255,0.15); }
+
+        /* ===== UNDO BANNER ===== */
+        #undoBanner { position: fixed; bottom: 90px; left: 20px; right: 20px; background: var(--bg-card); padding: 14px 20px; border-radius: var(--radius); display: none; justify-content: space-between; align-items: center; z-index: 100; backdrop-filter: blur(20px); border: 1px solid var(--glass-border); box-shadow: var(--shadow); }
+        #undoBanner.active { display: flex; animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        #undoBanner .undo-btn { color: var(--accent); font-weight: 600; background: none; border: none; font-size: 16px; cursor: pointer; transition: var(--transition); }
+        #undoBanner .undo-btn:active { transform: scale(0.92); }
+
+        /* ===== EXPORT OVERLAY ===== */
+        #exportOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 200; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 24px; backdrop-filter: blur(16px); }
+        #exportOverlay.active { display: flex; }
+        #exportOverlay .spinner { width: 44px; height: 44px; border: 4px solid var(--glass-border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #exportOverlay p { color: var(--text-secondary); font-size: 16px; font-weight: 400; }
+
+        /* ===== DATUMSAUSWAHL (Premium Bottom Sheet) ===== */
+        #datePicker {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--glass-border);
+            padding: 24px 20px 30px;
+            z-index: 50;
+            transform: translateY(100%);
+            transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+            border-radius: 24px 24px 0 0;
+            max-height: 80vh;
+            overflow-y: auto;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 -8px 40px rgba(0,0,0,0.6);
+        }
+        #datePicker.active { transform: translateY(0); }
+        #datePicker h3 { font-size: 20px; font-weight: 700; margin-bottom: 4px; color: var(--text-primary); }
+        #datePicker .sub { font-size: 14px; color: var(--text-muted); margin-bottom: 16px; }
+        #datePicker .date-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+        #datePicker .date-list .day-btn {
+            padding: 8px 16px; border-radius: 30px; border: 2px solid var(--glass-border);
+            background: var(--glass-bg); color: var(--text-secondary); font-size: 14px;
+            cursor: pointer; transition: var(--transition);
+        }
+        #datePicker .date-list .day-btn.selected { border-color: var(--accent); background: rgba(241,196,15,0.15); color: var(--text-primary); }
+        #datePicker .date-list .day-btn:active { transform: scale(0.92); }
+        #datePicker .recap-toggle { display: flex; align-items: center; gap: 12px; margin: 12px 0; padding: 10px 0; border-top: 1px solid var(--glass-border); border-bottom: 1px solid var(--glass-border); }
+        #datePicker .recap-toggle label { color: var(--text-secondary); font-size: 14px; cursor: pointer; }
+        #datePicker .recap-toggle input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); cursor: pointer; }
+        #datePicker .meta-fields { display: flex; flex-direction: column; gap: 12px; margin: 12px 0; }
+        #datePicker .meta-fields input, #datePicker .meta-fields select {
+            background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 12px;
+            padding: 12px 16px; color: var(--text-primary); font-size: 15px; outline: none;
+            transition: var(--transition); width: 100%;
+        }
+        #datePicker .meta-fields input:focus, #datePicker .meta-fields select:focus { border-color: var(--accent); }
+        #datePicker .meta-fields select option { background: var(--bg-secondary); color: var(--text-primary); }
+        #datePicker .actions { display: flex; gap: 12px; margin-top: 16px; }
+        #datePicker .actions button { flex: 1; padding: 14px; border-radius: 30px; border: none; font-size: 16px; font-weight: 600; cursor: pointer; transition: var(--transition); }
+        #datePicker .actions .save-btn { background: var(--accent); color: #000; }
+        #datePicker .actions .cancel-btn { background: var(--glass-bg); color: var(--text-secondary); border: 1px solid var(--glass-border); }
+        #datePicker .actions button:active { transform: scale(0.96); }
+
+        /* ===== BOTTOM NAV (Premium) ===== */
+        .bottom-nav {
+            display: flex; background: rgba(22,22,31,0.92); backdrop-filter: blur(20px);
+            border-top: 1px solid var(--glass-border); flex-shrink: 0;
+            padding-bottom: env(safe-area-inset-bottom); z-index: 30; position: relative;
+        }
+        .bottom-nav button {
+            flex: 1; padding: 10px 0 8px; background: none; border: none;
+            color: var(--text-muted); font-size: 11px; font-weight: 500;
+            display: flex; flex-direction: column; align-items: center; gap: 2px;
+            cursor: pointer; transition: var(--transition);
+            border-top: 3px solid transparent;
+        }
+        .bottom-nav button .icon { font-size: 24px; line-height: 1; }
+        .bottom-nav button.active { color: var(--accent); border-top-color: var(--accent); background: rgba(241,196,15,0.06); }
+        .bottom-nav button:active { transform: scale(0.94); background: rgba(255,255,255,0.04); }
+        ::-webkit-scrollbar { display: none; }
+
+        /* ===== PIN OVERLAY (Premium) ===== */
+        #pinOverlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(ellipse at center, #1a1a2e, #0a0a0f);
+            z-index: 9999; display: none; align-items: center; justify-content: center;
+            flex-direction: column; backdrop-filter: blur(30px);
+        }
+        #pinOverlay.active { display: flex; animation: modalFade 0.4s ease; }
+        #pinOverlay .pin-title { font-size: 28px; font-weight: 700; margin-bottom: 4px; color: #fff; }
+        #pinOverlay .pin-sub { color: var(--text-muted); font-size: 15px; margin-bottom: 32px; }
+        #pinOverlay .pin-dots { display: flex; gap: 16px; margin-bottom: 32px; }
+        #pinOverlay .pin-dots span { width: 16px; height: 16px; border-radius: 50%; background: var(--glass-border); transition: var(--transition); }
+        #pinOverlay .pin-dots span.filled { background: var(--accent); box-shadow: 0 0 20px rgba(241,196,15,0.3); }
+        #pinOverlay .pin-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; max-width: 280px; width: 100%; }
+        #pinOverlay .pin-pad button {
+            padding: 18px; font-size: 26px; border-radius: 50%; border: none;
+            background: var(--glass-bg); backdrop-filter: blur(10px);
+            color: #fff; cursor: pointer; aspect-ratio: 1/1;
+            border: 1px solid var(--glass-border); transition: var(--transition);
+        }
+        #pinOverlay .pin-pad button:active { transform: scale(0.88); background: rgba(255,255,255,0.1); }
+        #pinOverlay .pin-pad .empty-btn { background: transparent; border: none; pointer-events: none; }
+        #pinOverlay .pin-pad .del-btn { background: transparent; border: none; font-size: 22px; color: var(--text-muted); }
+        #pinOverlay .pin-error { color: #e74c3c; font-size: 14px; margin-top: 20px; min-height: 24px; font-weight: 500; }
+        #pinOverlay .skip-btn { margin-top: 24px; background: none; border: none; color: var(--text-muted); font-size: 15px; text-decoration: underline; cursor: pointer; transition: var(--transition); }
+        #pinOverlay .skip-btn:active { color: var(--text-secondary); transform: scale(0.96); }
+    </style>
+</head>
+<body>
+
+<!-- ===== PIN OVERLAY ===== -->
+<div id="pinOverlay">
+    <div class="pin-title">🔒 Tagebuch</div>
+    <div class="pin-sub">PIN eingeben</div>
+    <div class="pin-dots" id="pinDots">
+        <span></span><span></span><span></span><span></span>
+    </div>
+    <div class="pin-pad" id="pinPad">
+        <button data-num="1">1</button><button data-num="2">2</button><button data-num="3">3</button>
+        <button data-num="4">4</button><button data-num="5">5</button><button data-num="6">6</button>
+        <button data-num="7">7</button><button data-num="8">8</button><button data-num="9">9</button>
+        <button class="empty-btn"></button><button data-num="0">0</button><button class="del-btn" id="pinDel">⌫</button>
+    </div>
+    <div class="pin-error" id="pinError"></div>
+    <button class="skip-btn" id="pinSkip">PIN überspringen</button>
+</div>
+
+<!-- ===== APP ===== -->
+<div id="app" style="display:none;">
+    <!-- HEADER -->
+    <div class="header">
+        <h1>📖 Tagebuch</h1>
+        <div class="header-actions">
+            <button id="exportBtn">📦 Export</button>
+            <button id="importBtn">📂 Import</button>
+            <input type="file" id="fileInput" accept=".zip" style="display:none">
+        </div>
+    </div>
+
+    <!-- KAMERA -->
+    <div id="camera-view" class="view active">
+        <div class="camera-placeholder" id="cameraPlaceholder">
+            <span>📷</span>
+            <p>Drücke den roten Knopf zum Aufnehmen</p>
+        </div>
+        <video id="videoPreview" class="video-preview" autoplay playsinline muted></video>
+        <button class="cam-overlay-btn" id="flipBtn">↺</button>
+        <div class="camera-controls">
+            <div class="timer-badge" id="timerDisplay">00:00</div>
+            <button class="record-btn" id="recordBtn">●</button>
+            <div class="mood-selector">
+                <button class="mood-btn selected" data-mood="happy">😊</button>
+                <button class="mood-btn" data-mood="neutral">😐</button>
+                <button class="mood-btn" data-mood="sad">😔</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GALERIE -->
+    <div id="gallery-view" class="view">
+        <div class="gallery-header">
+            <h2>📸 Galerie</h2>
+            <div class="gallery-filter">
+                <select id="galleryFolderFilter">
+                    <option value="all">Alle Ordner</option>
+                </select>
+            </div>
+        </div>
+        <div class="gallery-grid" id="galleryGrid"></div>
+    </div>
+
+    <!-- KALENDER -->
+    <div id="calendar-view" class="view">
+        <div class="cal-header">
+            <button id="calPrev">‹</button>
+            <h2 id="calMonthYear">August 2026</h2>
+            <button id="calNext">›</button>
+        </div>
+        <div class="cal-grid" id="calGrid"></div>
+        <div class="cal-day-list" id="calDayList">
+            <div class="cal-empty">Tippe auf einen Tag</div>
+        </div>
+    </div>
+
+    <!-- NAV -->
+    <div class="bottom-nav">
+        <button id="navCamera" class="active"><span class="icon">📷</span> Kamera</button>
+        <button id="navGallery"><span class="icon">🖼️</span> Galerie</button>
+        <button id="navCalendar"><span class="icon">📅</span> Kalender</button>
+    </div>
+</div>
+
+<!-- PLAYER MODAL -->
+<div id="playerModal"><div class="modal-close" id="modalClose">✕</div><video id="modalVideo" controls playsinline autoplay></video></div>
+
+<!-- UNDO BANNER -->
+<div id="undoBanner"><span id="undoText">Video gelöscht</span><button class="undo-btn" id="undoBtn">Rückgängig</button></div>
+
+<!-- EXPORT OVERLAY -->
+<div id="exportOverlay"><div class="spinner"></div><p id="exportStatus">Packe Videos...</p></div>
+
+<!-- DATUMSAUSWAHL (BOTTOM SHEET) -->
+<div id="datePicker">
+    <h3>📅 Für welchen Tag?</h3>
+    <div class="sub">Wähle den oder die Tage für dieses Video</div>
+    <div class="date-list" id="dateList"></div>
+    <div class="recap-toggle">
+        <input type="checkbox" id="recapToggle">
+        <label for="recapToggle">📌 Recap-Modus (mehrere Tage, max. 7)</label>
+    </div>
+    <div class="meta-fields">
+        <input type="text" id="videoTitle" placeholder="Titel (optional)" maxlength="60">
+        <select id="videoFolder">
+            <option value="Alle">Alle</option>
+        </select>
+        <div style="display:flex; gap:8px; margin-top:-4px;">
+            <button id="newFolderBtn" style="background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:30px;padding:6px 14px;color:var(--text-secondary);font-size:12px;cursor:pointer;">+ Neuer Ordner</button>
+        </div>
+    </div>
+    <div class="actions">
+        <button class="cancel-btn" id="dateCancel">Abbrechen</button>
+        <button class="save-btn" id="dateSave">Speichern</button>
+    </div>
+</div>
+
+<script>
+    (async function() {
+        "use strict";
+
+        // ========== DOM REFS ==========
+        const app = document.getElementById('app');
+        const pinOverlay = document.getElementById('pinOverlay');
+        const pinDots = document.querySelectorAll('#pinDots span');
+        const pinPad = document.getElementById('pinPad');
+        const pinDel = document.getElementById('pinDel');
+        const pinError = document.getElementById('pinError');
+        const pinSkip = document.getElementById('pinSkip');
+
+        const videoPreview = document.getElementById('videoPreview');
+        const placeholder = document.getElementById('cameraPlaceholder');
+        const recordBtn = document.getElementById('recordBtn');
+        const flipBtn = document.getElementById('flipBtn');
+        const timerDisplay = document.getElementById('timerDisplay');
+        const galleryGrid = document.getElementById('galleryGrid');
+        const galleryFolderFilter = document.getElementById('galleryFolderFilter');
+        const calGrid = document.getElementById('calGrid');
+        const calMonthYear = document.getElementById('calMonthYear');
+        const calPrev = document.getElementById('calPrev');
+        const calNext = document.getElementById('calNext');
+        const calDayList = document.getElementById('calDayList');
+        const navCamera = document.getElementById('navCamera');
+        const navGallery = document.getElementById('navGallery');
+        const navCalendar = document.getElementById('navCalendar');
+        const cameraView = document.getElementById('camera-view');
+        const galleryView = document.getElementById('gallery-view');
+        const calendarView = document.getElementById('calendar-view');
+        const exportBtn = document.getElementById('exportBtn');
+        const importBtn = document.getElementById('importBtn');
+        const fileInput = document.getElementById('fileInput');
+        const modal = document.getElementById('playerModal');
+        const modalVideo = document.getElementById('modalVideo');
+        const modalClose = document.getElementById('modalClose');
+        const undoBanner = document.getElementById('undoBanner');
+        const undoText = document.getElementById('undoText');
+        const undoBtn = document.getElementById('undoBtn');
+        const exportOverlay = document.getElementById('exportOverlay');
+        const exportStatus = document.getElementById('exportStatus');
+        const datePicker = document.getElementById('datePicker');
+        const dateList = document.getElementById('dateList');
+        const recapToggle = document.getElementById('recapToggle');
+        const dateCancel = document.getElementById('dateCancel');
+        const dateSave = document.getElementById('dateSave');
+        const videoTitle = document.getElementById('videoTitle');
+        const videoFolder = document.getElementById('videoFolder');
+        const newFolderBtn = document.getElementById('newFolderBtn');
+
+        // ========== PIN LOGIC ==========
+        let storedPin = localStorage.getItem('videoJournalPin') || '';
+        let pinAttempt = '';
+        let pinTimeout = null;
+
+        function showPin() {
+            app.style.display = 'none';
+            pinOverlay.classList.add('active');
+            pinAttempt = '';
+            updatePinDots();
+            pinError.textContent = '';
+        }
+
+        function hidePin() {
+            pinOverlay.classList.remove('active');
+            app.style.display = 'flex';
+            if (pinTimeout) clearTimeout(pinTimeout);
+            pinTimeout = setTimeout(() => { if (!pinOverlay.classList.contains('active')) showPin(); }, 60000);
+        }
+
+        function updatePinDots() {
+            pinDots.forEach((dot, i) => dot.classList.toggle('filled', i < pinAttempt.length));
+        }
+
+        pinPad.addEventListener('click', (e) => {
+            const btn = e.target.closest('button');
+            if (!btn) return;
+            if (btn === pinDel) {
+                pinAttempt = pinAttempt.slice(0, -1);
+                updatePinDots();
+                pinError.textContent = '';
+                return;
+            }
+            const num = btn.dataset.num;
+            if (num === undefined) return;
+            if (pinAttempt.length >= 4) return;
+            pinAttempt += num;
+            updatePinDots();
+
+            if (pinAttempt.length === 4) {
+                if (storedPin === '') {
+                    storedPin = pinAttempt;
+                    localStorage.setItem('videoJournalPin', storedPin);
+                    pinError.textContent = '✅ PIN gesetzt!';
+                    setTimeout(hidePin, 400);
+                } else if (pinAttempt === storedPin) {
+                    pinError.textContent = '✅ Richtig!';
+                    setTimeout(hidePin, 300);
+                } else {
+                    pinError.textContent = '❌ Falscher PIN';
+                    pinAttempt = '';
+                    updatePinDots();
+                }
+            }
+        });
+
+        pinSkip.addEventListener('click', () => {
+            if (storedPin === '') {
+                hidePin();
+            } else {
+                pinError.textContent = 'PIN benötigt';
+            }
+        });
+
+        // ========== OPFS ==========
+        let rootDir, videoDir;
+        async function initOPFS() {
+            try {
+                rootDir = await navigator.storage.getDirectory();
+                videoDir = await rootDir.getDirectoryHandle('videos', { create: true });
+            } catch (e) { alert('OPFS nicht unterstützt.'); throw e; }
+        }
+        await initOPFS();
+
+        // ========== METADATEN & FOLDER ==========
+        async function loadMetadata() {
+            try {
+                const fh = await rootDir.getFileHandle('metadata.json', { create: true });
+                const file = await fh.getFile();
+                if (file.size === 0) return [];
+                return JSON.parse(await file.text());
+            } catch { return []; }
+        }
+        async function saveMetadata(meta) {
+            const fh = await rootDir.getFileHandle('metadata.json', { create: true });
+            const w = await fh.createWritable();
+            await w.write(JSON.stringify(meta, null, 2));
+            await w.close();
+        }
+
+        async function loadFolders() {
+            try {
+                const fh = await rootDir.getFileHandle('folders.json', { create: true });
+                const file = await fh.getFile();
+                if (file.size === 0) return ['Alle'];
+                return JSON.parse(await file.text());
+            } catch { return ['Alle']; }
+        }
+        async function saveFolders(folders) {
+            const fh = await rootDir.getFileHandle('folders.json', { create: true });
+            const w = await fh.createWritable();
+            await w.write(JSON.stringify(folders, null, 2));
+            await w.close();
+        }
+
+        // ========== HELPERS ==========
+        function getDateStr(d) { return d.toISOString().slice(0,10); }
+        function getTodayStr() { return getDateStr(new Date()); }
+        function formatTime(ts) {
+            const d = new Date(ts);
+            return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+        }
+        function getRelativeDate(dateStr) {
+            const today = getTodayStr();
+            if (dateStr === today) return 'Heute';
+            const d = new Date(dateStr + 'T00:00:00');
+            const diff = Math.floor((Date.now() - d.getTime()) / 86400000);
+            if (diff === 1) return 'Gestern';
+            if (diff <= 7) return `Vor ${diff} Tagen`;
+            if (diff <= 14) return 'Letzte Woche';
+            return d.toLocaleDateString('de-DE');
+        }
+
+        // ========== VIDEO SPEICHERN ==========
+        async function saveVideoToOPFS(blob, mood, dates, title, folder) {
+            const id = Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+            const filename = id + '.mp4';
+            const fh = await videoDir.getFileHandle(filename, { create: true });
+            const w = await fh.createWritable();
+            await w.write(blob);
+            await w.close();
+            const meta = await loadMetadata();
+            meta.push({ id, filename, timestamp: Date.now(), mood, dates, title: title || '', folder: folder || 'Alle' });
+            await saveMetadata(meta);
+            return id;
+        }
+
+        async function deleteVideoById(id) {
+            let meta = await loadMetadata();
+            const entry = meta.find(m => m.id === id);
+            if (!entry) return false;
+            try { await videoDir.removeEntry(entry.filename); } catch(e) {}
+            meta = meta.filter(m => m.id !== id);
+            await saveMetadata(meta);
+            return true;
+        }
+
+        // ========== KAMERA STATE ==========
+        let stream = null;
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let isRecording = false;
+        let timerInterval = null;
+        let seconds = 0;
+        let selectedMood = 'happy';
+        let useFrontCam = true;
+        let isFlipping = false;
+        let isCameraReady = false;
+        let pendingVideoData = null;
+
+        // ========== KAMERA FUNKTIONEN ==========
+        async function startCamera(facingMode = 'user') {
+            if (stream) {
+                stream.getTracks().forEach(t => t.stop());
+                stream = null;
+            }
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: facingMode, width: { ideal: 720 } },
+                    audio: true
+                });
+                videoPreview.srcObject = stream;
+                videoPreview.classList.add('active');
+                placeholder.style.display = 'none';
+                flipBtn.classList.remove('hidden');
+                isCameraReady = true;
+                // Haptic Feedback
+                if (navigator.vibrate) navigator.vibrate(8);
+                return true;
+            } catch(e) {
+                alert('Kamera/Mikrofon Zugriff verweigert.');
+                return false;
+            }
+        }
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(t => t.stop());
+                stream = null;
+                videoPreview.srcObject = null;
+                videoPreview.classList.remove('active');
+                placeholder.style.display = 'flex';
+                flipBtn.classList.add('hidden');
+                isCameraReady = false;
+            }
+        }
+
+        // ========== FLIP (immer verfügbar) ==========
+        async function flipCamera() {
+            if (isFlipping) return;
+            
+            // Wenn Kamera noch nicht läuft: einfach starten mit neuer Orientierung
+            if (!isCameraReady) {
+                useFrontCam = !useFrontCam;
+                const facing = useFrontCam ? 'user' : 'environment';
+                await startCamera(facing);
+                return;
+            }
+
+            // Wenn Kamera läuft: Flip mit Fade
+            isFlipping = true;
+            videoPreview.style.transition = 'opacity 0.3s ease';
+            videoPreview.style.opacity = '0';
+
+            setTimeout(async () => {
+                useFrontCam = !useFrontCam;
+                const facing = useFrontCam ? 'user' : 'environment';
+                if (mediaRecorder && isRecording) {
+                    mediaRecorder.pause();
+                }
+                const newStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: facing, width: { ideal: 720 } },
+                    audio: true
+                });
+                if (stream) stream.getTracks().forEach(t => t.stop());
+                stream = newStream;
+                videoPreview.srcObject = stream;
+                if (mediaRecorder && isRecording) {
+                    mediaRecorder.resume();
+                }
+                videoPreview.style.opacity = '1';
+                if (navigator.vibrate) navigator.vibrate(8);
+                isFlipping = false;
+            }, 300);
+        }
+
+        // ========== AUFNAHME ==========
+        async function startRecording() {
+            if (isRecording) return;
+            
+            // Kamera starten falls nicht bereit
+            if (!isCameraReady) {
+                const facing = useFrontCam ? 'user' : 'environment';
+                const ok = await startCamera(facing);
+                if (!ok) return;
+                // Kurze Verzögerung damit Kamera stabil ist
+                await new Promise(r => setTimeout(r, 300));
+            }
+
+            recordedChunks = [];
+            seconds = 0;
+            timerDisplay.textContent = '00:00';
+            const mimeType = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : 'video/webm;codecs=vp9,opus';
+            mediaRecorder = new MediaRecorder(stream, { mimeType });
+            mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+            mediaRecorder.onstop = async () => {
+                if (recordedChunks.length > 0) {
+                    const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType });
+                    pendingVideoData = { blob, mood: selectedMood };
+                }
+                clearInterval(timerInterval);
+                timerDisplay.textContent = '00:00';
+                recordBtn.textContent = '●';
+                recordBtn.classList.remove('recording');
+                isRecording = false;
+                recordedChunks = [];
+                
+                // Kamera ausschalten + Platzhalter zeigen
+                stopCamera();
+                
+                // Nach kurzer Verzögerung DatePicker öffnen
+                setTimeout(() => {
+                    if (pendingVideoData) {
+                        showDatePicker();
+                    }
+                }, 350);
+            };
+            mediaRecorder.start(1000);
+            isRecording = true;
+            recordBtn.textContent = '⏹';
+            recordBtn.classList.add('recording');
+            if (navigator.vibrate) navigator.vibrate(10);
+            timerInterval = setInterval(() => {
+                seconds++;
+                const m = String(Math.floor(seconds/60)).padStart(2,'0');
+                const s = String(seconds%60).padStart(2,'0');
+                timerDisplay.textContent = `${m}:${s}`;
+            }, 1000);
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                clearInterval(timerInterval);
+            }
+        }
+
+        // ========== FLIP BUTTON ==========
+        flipBtn.addEventListener('click', flipCamera);
+
+        // ========== RECORD BUTTON ==========
+        recordBtn.addEventListener('click', () => {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        });
+
+        // ========== MOOD ==========
+        document.querySelectorAll('.mood-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.mood-btn').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                selectedMood = btn.dataset.mood;
+                if (navigator.vibrate) navigator.vibrate(6);
+            });
+        });
+
+        // ========== NAVIGATION ==========
+        let currentView = 'camera';
+
+        function switchView(view) {
+            currentView = view;
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.querySelectorAll('.bottom-nav button').forEach(b => b.classList.remove('active'));
+            if (view === 'camera') {
+                cameraView.classList.add('active');
+                navCamera.classList.add('active');
+                if (isRecording) stopRecording();
+                // Kamera bleibt aus, bis Nutzer aufnimmt oder flip drückt
+                if (!isCameraReady) {
+                    videoPreview.classList.remove('active');
+                    placeholder.style.display = 'flex';
+                }
+            } else if (view === 'gallery') {
+                galleryView.classList.add('active');
+                navGallery.classList.add('active');
+                if (isRecording) stopRecording();
+                stopCamera();
+                renderGallery();
+                updateFolderFilter();
+            } else if (view === 'calendar') {
+                calendarView.classList.add('active');
+                navCalendar.classList.add('active');
+                if (isRecording) stopRecording();
+                stopCamera();
+                renderCalendar();
+            }
+        }
+
+        navCamera.addEventListener('click', () => switchView('camera'));
+        navGallery.addEventListener('click', () => switchView('gallery'));
+        navCalendar.addEventListener('click', () => switchView('calendar'));
+
+        // ========== DATUMSAUSWAHL ==========
+        let selectedDates = [];
+        let recapMode = false;
+        let currentFolders = ['Alle'];
+
+        async function loadFolderOptions() {
+            currentFolders = await loadFolders();
+            // Update dropdown
+            videoFolder.innerHTML = '';
+            currentFolders.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f;
+                opt.textContent = f;
+                videoFolder.appendChild(opt);
+            });
+            // Update gallery filter
+            updateFolderFilter();
+        }
+
+        function updateFolderFilter() {
+            galleryFolderFilter.innerHTML = '<option value="all">Alle Ordner</option>';
+            currentFolders.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f;
+                opt.textContent = f;
+                galleryFolderFilter.appendChild(opt);
+            });
+        }
+
+        async function showDatePicker() {
+            await loadFolderOptions();
+            const today = new Date();
+            const days = [];
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date(today);
+                d.setDate(d.getDate() - i);
+                days.push(d);
+            }
+            dateList.innerHTML = '';
+            selectedDates = [getTodayStr()];
+            recapToggle.checked = false;
+            recapMode = false;
+            videoTitle.value = '';
+            videoFolder.value = 'Alle';
+
+            days.forEach(d => {
+                const btn = document.createElement('button');
+                btn.className = 'day-btn';
+                const ds = getDateStr(d);
+                const label = ds === getTodayStr() ? 'Heute' : d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric' });
+                btn.textContent = label;
+                btn.dataset.date = ds;
+                if (ds === getTodayStr()) btn.classList.add('selected');
+                btn.addEventListener('click', () => toggleDateSelection(ds, btn));
+                dateList.appendChild(btn);
+            });
+
+            datePicker.classList.add('active');
+        }
+
+        function toggleDateSelection(ds, btn) {
+            if (!recapMode) {
+                document.querySelectorAll('#dateList .day-btn').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                selectedDates = [ds];
+                return;
+            }
+            const allBtns = [...document.querySelectorAll('#dateList .day-btn')];
+            const allDates = allBtns.map(b => b.dataset.date);
+            const idx = allDates.indexOf(ds);
+            if (idx === -1) return;
+
+            const currentlySelected = allBtns.filter(b => b.classList.contains('selected')).map(b => b.dataset.date);
+            let newSelection;
+            if (currentlySelected.includes(ds)) {
+                newSelection = currentlySelected.filter(d => d !== ds);
+            } else {
+                newSelection = [...currentlySelected, ds];
+            }
+            newSelection.sort();
+            let valid = true;
+            for (let i = 1; i < newSelection.length; i++) {
+                const a = new Date(newSelection[i-1] + 'T00:00:00');
+                const b = new Date(newSelection[i] + 'T00:00:00');
+                const diff = (b - a) / 86400000;
+                if (diff !== 1) { valid = false; break; }
+            }
+            if (!valid && newSelection.length > 0) {
+                newSelection = [newSelection[0]];
+            }
+            if (newSelection.length > 7) newSelection = newSelection.slice(0,7);
+            selectedDates = newSelection;
+            allBtns.forEach(b => b.classList.toggle('selected', selectedDates.includes(b.dataset.date)));
+        }
+
+        recapToggle.addEventListener('change', () => {
+            recapMode = recapToggle.checked;
+            if (recapMode) {
+                document.querySelectorAll('#dateList .day-btn').forEach(b => b.classList.remove('selected'));
+                const todayBtn = document.querySelector('#dateList .day-btn[data-date="' + getTodayStr() + '"]');
+                if (todayBtn) { todayBtn.classList.add('selected'); selectedDates = [getTodayStr()]; }
+            } else {
+                document.querySelectorAll('#dateList .day-btn').forEach(b => b.classList.remove('selected'));
+                const todayBtn = document.querySelector('#dateList .day-btn[data-date="' + getTodayStr() + '"]');
+                if (todayBtn) { todayBtn.classList.add('selected'); selectedDates = [getTodayStr()]; }
+            }
+        });
+
+        newFolderBtn.addEventListener('click', async () => {
+            const name = prompt('Neuer Ordner Name:');
+            if (name && name.trim() !== '') {
+                const trimmed = name.trim();
+                if (!currentFolders.includes(trimmed)) {
+                    currentFolders.push(trimmed);
+                    await saveFolders(currentFolders);
+                    await loadFolderOptions();
+                    videoFolder.value = trimmed;
+                } else {
+                    alert('Ordner existiert bereits.');
+                }
+            }
+        });
+
+        dateCancel.addEventListener('click', () => {
+            datePicker.classList.remove('active');
+            pendingVideoData = null;
+        });
+
+        dateSave.addEventListener('click', async () => {
+            if (!pendingVideoData) return;
+            const { blob, mood } = pendingVideoData;
+            const dates = selectedDates.length > 0 ? selectedDates : [getTodayStr()];
+            const title = videoTitle.value.trim() || '';
+            const folder = videoFolder.value || 'Alle';
+            
+            // Ordner ggf. speichern (falls neu)
+            if (!currentFolders.includes(folder) && folder !== 'Alle') {
+                currentFolders.push(folder);
+                await saveFolders(currentFolders);
+            }
+            
+            await saveVideoToOPFS(blob, mood, dates, title, folder);
+            datePicker.classList.remove('active');
+            pendingVideoData = null;
+            renderGallery();
+            renderCalendar();
+            switchView('gallery');
+        });
+
+        // ========== GALERIE RENDER ==========
+        async function renderGallery() {
+            const meta = await loadMetadata();
+            const filter = galleryFolderFilter.value;
+            galleryGrid.innerHTML = '';
+            
+            let filtered = meta;
+            if (filter !== 'all') {
+                filtered = meta.filter(item => (item.folder || 'Alle') === filter);
+            }
+            
+            if (filtered.length === 0) {
+                galleryGrid.innerHTML = `<div class="empty-state"><span>📭</span>${meta.length === 0 ? 'Noch keine Einträge. 🎥 Nimm dein erstes Video auf!' : 'Keine Einträge in diesem Ordner.'}</div>`;
+                return;
+            }
+            filtered.sort((a,b) => b.timestamp - a.timestamp);
+            
+            for (let item of filtered) {
+                const div = document.createElement('div');
+                div.className = 'gallery-item';
+                try {
+                    const fh = await videoDir.getFileHandle(item.filename);
+                    const file = await fh.getFile();
+                    const url = URL.createObjectURL(file);
+                    const video = document.createElement('video');
+                    video.src = url;
+                    video.preload = 'metadata';
+                    video.muted = true;
+                    video.playsInline = true;
+                    video.loop = true;
+                    div.appendChild(video);
+
+                    const observer = new IntersectionObserver((entries) => {
+                        entries.forEach(entry => {
+                            if (entry.isIntersecting) {
+                                video.play().catch(()=>{});
+                            } else {
+                                video.pause();
+                            }
+                        });
+                    }, { threshold: 0.3 });
+                    observer.observe(video);
+
+                    div.addEventListener('click', () => {
+                        fh.getFile().then(f => {
+                            const u = URL.createObjectURL(f);
+                            modalVideo.src = u;
+                            modal.classList.add('active');
+                            modalVideo.play();
+                        });
+                    });
+
+                    // Mood
+                    const moodSpan = document.createElement('span');
+                    moodSpan.className = 'mood-emoji';
+                    const moodMap = { happy:'😊', neutral:'😐', sad:'😔' };
+                    moodSpan.textContent = moodMap[item.mood] || '😐';
+                    div.appendChild(moodSpan);
+
+                    // Recap Badge
+                    if (item.dates && item.dates.length > 1) {
+                        const badge = document.createElement('span');
+                        badge.className = 'recap-badge';
+                        badge.textContent = `📅 +${item.dates.length-1}`;
+                        div.appendChild(badge);
+                    }
+
+                    // Title
+                    if (item.title) {
+                        const titleSpan = document.createElement('span');
+                        titleSpan.className = 'video-title';
+                        titleSpan.textContent = item.title;
+                        div.appendChild(titleSpan);
+                    }
+
+                    // Folder
+                    if (item.folder && item.folder !== 'Alle') {
+                        const folderSpan = document.createElement('span');
+                        folderSpan.className = 'folder-badge';
+                        folderSpan.textContent = '📁 ' + item.folder;
+                        div.appendChild(folderSpan);
+                    }
+
+                    // Relative Date
+                    const relDate = document.createElement('span');
+                    relDate.className = 'rel-date';
+                    const firstDate = item.dates ? item.dates[0] : getDateStr(new Date(item.timestamp));
+                    relDate.textContent = getRelativeDate(firstDate) + ' • ' + formatTime(item.timestamp);
+                    div.appendChild(relDate);
+
+                    // Delete
+                    const delBtn = document.createElement('button');
+                    delBtn.className = 'delete-btn';
+                    delBtn.textContent = '✕';
+                    delBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const deletedId = item.id;
+                        div.style.transition = 'opacity 0.3s, transform 0.3s';
+                        div.style.opacity = '0';
+                        div.style.transform = 'scale(0.8)';
+                        setTimeout(() => { div.style.display = 'none'; }, 300);
+
+                        undoText.textContent = 'Video gelöscht';
+                        undoBanner.classList.add('active');
+                        let undone = false;
+                        const undoHandler = () => {
+                            undone = true;
+                            undoBanner.classList.remove('active');
+                            renderGallery();
+                            renderCalendar();
+                        };
+                        undoBtn.onclick = undoHandler;
+                        setTimeout(() => {
+                            if (!undone) {
+                                undoBanner.classList.remove('active');
+                                deleteVideoById(deletedId).then(() => {
+                                    renderGallery();
+                                    renderCalendar();
+                                });
+                            }
+                        }, 5000);
+                    });
+                    div.appendChild(delBtn);
+
+                } catch(e) {
+                    div.innerHTML = `<div style="padding:20px;color:var(--text-muted);">⚠️ Fehler</div>`;
+                }
+                galleryGrid.appendChild(div);
+            }
+        }
+
+        galleryFolderFilter.addEventListener('change', renderGallery);
+
+        // ========== KALENDER RENDER ==========
+        let calDate = new Date();
+        let activeDate = getTodayStr();
+
+        async function renderCalendar() {
+            const meta = await loadMetadata();
+            const year = calDate.getFullYear();
+            const month = calDate.getMonth();
+            calMonthYear.textContent = new Date(year, month).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month+1, 0).getDate();
+            const today = getTodayStr();
+
+            const dayMap = {};
+            meta.forEach(item => {
+                const dates = item.dates || [getDateStr(new Date(item.timestamp))];
+                dates.forEach(d => {
+                    if (!dayMap[d]) dayMap[d] = [];
+                    dayMap[d].push(item);
+                });
+            });
+
+            let html = '';
+            const weekdays = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+            weekdays.forEach(w => html += `<div class="weekday">${w}</div>`);
+
+            for (let i = 0; i < firstDay; i++) {
+                html += `<div class="day"></div>`;
+            }
+
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateObj = new Date(year, month, d);
+                const dateStr = getDateStr(dateObj);
+                const isToday = dateStr === today;
+                const isActive = dateStr === activeDate;
+                const hasVideos = dayMap[dateStr] && dayMap[dateStr].length > 0;
+
+                let moodDot = '';
+                if (hasVideos) {
+                    const moods = dayMap[dateStr].map(i => i.mood);
+                    const unique = [...new Set(moods)];
+                    if (unique.length > 1) moodDot = 'mixed';
+                    else moodDot = unique[0];
+                }
+
+                html += `<div class="day ${isToday?'today':''} ${hasVideos?'has-video':''} ${isActive?'active':''}" data-date="${dateStr}">
+                            ${d}
+                            ${hasVideos ? `<div class="dot ${moodDot}"></div>` : ''}
+                        </div>`;
+            }
+
+            calGrid.innerHTML = html;
+
+            document.querySelectorAll('.cal-grid .day').forEach(el => {
+                if (!el.dataset.date) return;
+                el.addEventListener('click', () => {
+                    const ds = el.dataset.date;
+                    activeDate = ds;
+                    renderCalendar(); // re-render mit active
+                    renderDayList(ds);
+                    if (navigator.vibrate) navigator.vibrate(6);
+                });
+            });
+
+            // Active day list
+            const todayEl = document.querySelector('.cal-grid .day.active');
+            if (todayEl) renderDayList(todayEl.dataset.date);
+            else if (document.querySelector('.cal-grid .day.today')) renderDayList(today);
+            else renderDayList(getTodayStr());
+        }
+
+        async function renderDayList(dateStr) {
+            const meta = await loadMetadata();
+            const items = meta.filter(item => {
+                const dates = item.dates || [getDateStr(new Date(item.timestamp))];
+                return dates.includes(dateStr);
+            });
+            calDayList.innerHTML = '';
+            if (items.length === 0) {
+                calDayList.innerHTML = `<div class="cal-empty">📷 Keine Einträge für diesen Tag</div>`;
+                return;
+            }
+            // Sort by time
+            items.sort((a,b) => a.timestamp - b.timestamp);
+            for (let item of items) {
+                const div = document.createElement('div');
+                div.className = 'list-item';
+                try {
+                    const fh = await videoDir.getFileHandle(item.filename);
+                    const file = await fh.getFile();
+                    const url = URL.createObjectURL(file);
+                    const vid = document.createElement('video');
+                    vid.src = url;
+                    vid.muted = true;
+                    vid.playsInline = true;
+                    vid.preload = 'metadata';
+                    vid.style.width = '56px';
+                    vid.style.height = '56px';
+                    vid.style.objectFit = 'cover';
+                    vid.style.borderRadius = '8px';
+                    vid.style.background = '#000';
+                    div.appendChild(vid);
+
+                    const info = document.createElement('div');
+                    info.className = 'info';
+                    const moodMap = { happy:'😊', neutral:'😐', sad:'😔' };
+                    let label = `${moodMap[item.mood] || '😐'}`;
+                    if (item.title) label += ` <span class="title">${item.title}</span>`;
+                    label += ` <span class="time">• ${formatTime(item.timestamp)} Uhr</span>`;
+                    if (item.folder && item.folder !== 'Alle') {
+                        label += `<div class="folder">📁 ${item.folder}</div>`;
+                    }
+                    info.innerHTML = label;
+                    div.appendChild(info);
+
+                    div.addEventListener('click', () => {
+                        fh.getFile().then(f => {
+                            const u = URL.createObjectURL(f);
+                            modalVideo.src = u;
+                            modal.classList.add('active');
+                            modalVideo.play();
+                        });
+                    });
+                } catch(e) {
+                    div.innerHTML = `<span style="color:var(--text-muted);">⚠️ Fehler</span>`;
+                }
+                calDayList.appendChild(div);
+            }
+        }
+
+        calPrev.addEventListener('click', () => {
+            calDate.setMonth(calDate.getMonth() - 1);
+            renderCalendar();
+        });
+        calNext.addEventListener('click', () => {
+            calDate.setMonth(calDate.getMonth() + 1);
+            renderCalendar();
+        });
+
+        // ========== EXPORT ==========
+        exportBtn.addEventListener('click', async () => {
+            const meta = await loadMetadata();
+            if (meta.length === 0) { alert('Keine Einträge.'); return; }
+            exportOverlay.classList.add('active');
+            const zip = new JSZip();
+            const videoFolderZip = zip.folder('videos');
+            zip.file('metadata.json', JSON.stringify(meta, null, 2));
+            
+            // Folders exportieren
+            const folders = await loadFolders();
+            zip.file('folders.json', JSON.stringify(folders, null, 2));
+            
+            let count = 0;
+            for (let item of meta) {
+                count++;
+                exportStatus.textContent = `Packe Video ${count} von ${meta.length}...`;
+                try {
+                    const fh = await videoDir.getFileHandle(item.filename);
+                    const file = await fh.getFile();
+                    videoFolderZip.file(item.filename, await file.arrayBuffer());
+                } catch(e) {}
+            }
+            exportStatus.textContent = 'Erstelle ZIP...';
+            const zipBlob = await zip.generateAsync({ type: 'blob' });
+            const url = URL.createObjectURL(zipBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Tagebuch_Backup_${getTodayStr()}.zip`;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            exportOverlay.classList.remove('active');
+        });
+
+        // ========== IMPORT ==========
+        importBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            try {
+                const zip = await JSZip.loadAsync(file);
+                const metaFile = zip.file('metadata.json');
+                if (!metaFile) { alert('Ungültiges Backup.'); return; }
+                const importedMeta = JSON.parse(await metaFile.async('string'));
+                
+                // Folders importieren
+                const foldersFile = zip.file('folders.json');
+                let importedFolders = ['Alle'];
+                if (foldersFile) {
+                    importedFolders = JSON.parse(await foldersFile.async('string'));
+                }
+                const existingFolders = await loadFolders();
+                const mergedFolders = [...new Set([...existingFolders, ...importedFolders])];
+                await saveFolders(mergedFolders);
+                
+                const videoFiles = zip.folder('videos');
+                for (let item of importedMeta) {
+                    const fd = videoFiles.file(item.filename);
+                    if (fd) {
+                        const blob = await fd.async('blob');
+                        const fh = await videoDir.getFileHandle(item.filename, { create: true });
+                        const w = await fh.createWritable();
+                        await w.write(blob);
+                        await w.close();
+                    }
+                }
+                let existing = await loadMetadata();
+                const newIds = new Set(importedMeta.map(m => m.id));
+                existing = existing.filter(m => !newIds.has(m.id));
+                await saveMetadata([...existing, ...importedMeta]);
+                alert(`✅ ${importedMeta.length} Einträge importiert!`);
+                await loadFolderOptions();
+                renderGallery();
+                renderCalendar();
+            } catch(err) { alert('Import fehlgeschlagen: ' + err.message); }
+            fileInput.value = '';
+        });
+
+        // ========== MODAL PLAYER ==========
+        modalClose.addEventListener('click', () => {
+            modal.classList.remove('active');
+            modalVideo.pause();
+            modalVideo.src = '';
+        });
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.classList.remove('active');
+                modalVideo.pause();
+                modalVideo.src = '';
+            }
+        });
+
+        // ========== INIT ==========
+        if (storedPin) {
+            showPin();
+        } else {
+            showPin();
+        }
+
+        const origHide = hidePin;
+        hidePin = function() {
+            origHide();
+            if (app.style.display === 'flex') {
+                loadFolderOptions().then(() => {
+                    renderGallery();
+                    renderCalendar();
+                });
+                // Kamera ist aus, Flip-Button sichtbar
+                flipBtn.classList.remove('hidden');
+            }
+        };
+
+        setTimeout(() => {
+            if (app.style.display === 'flex') {
+                loadFolderOptions().then(() => {
+                    renderGallery();
+                    renderCalendar();
+                });
+            }
+        }, 100);
+
+        console.log('📖 Video-Tagebuch Premium geladen! Alle 6 Features aktiv.');
+    })();
+</script>
+</body>
+</html>
