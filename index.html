@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Video-Tagebuch</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+        body { background: #0b0b0e; color: #fff; height: 100vh; overflow: hidden; touch-action: manipulation; }
+        #app { display: flex; flex-direction: column; height: 100%; max-width: 500px; margin: 0 auto; width: 100%; background: #121217; position: relative; }
+
+        /* Header */
+        .header { padding: 16px 20px 8px; display: flex; justify-content: space-between; align-items: center; background: #121217; border-bottom: 1px solid #2a2a35; flex-shrink: 0; }
+        .header h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; background: linear-gradient(135deg, #f5b041, #f1c40f); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .header-actions button { background: #2a2a35; border: none; color: #aaa; padding: 6px 12px; border-radius: 20px; font-size: 12px; margin-left: 6px; cursor: pointer; }
+        .header-actions button:active { background: #3d3d4a; }
+
+        /* Views */
+        .view { flex: 1; overflow-y: auto; display: none; flex-direction: column; -webkit-overflow-scrolling: touch; }
+        .view.active { display: flex; }
+
+        /* === KAMERA ANSICHT (neu: kein Auto-Start) === */
+        #camera-view { padding: 0; background: #000; justify-content: center; align-items: center; position: relative; }
+        .camera-placeholder { 
+            width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            background: #1a1a22; color: #555; gap: 16px; 
+        }
+        .camera-placeholder span { font-size: 60px; opacity: 0.3; }
+        .camera-placeholder p { font-size: 16px; }
+        .video-preview { 
+            width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); 
+            display: none; /* Standardmäßig unsichtbar */
+        }
+        .video-preview.active { display: block; }
+        .camera-controls {
+            position: absolute; bottom: 40px; left: 0; right: 0;
+            display: flex; flex-direction: column; align-items: center; gap: 20px;
+            padding: 0 20px; z-index: 10; pointer-events: none;
+        }
+        .camera-controls > * { pointer-events: auto; }
+        .record-btn {
+            width: 80px; height: 80px; border-radius: 50%; background: #e74c3c; border: 4px solid #fff;
+            box-shadow: 0 0 30px rgba(231, 76, 60, 0.6); transition: all 0.15s; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: white;
+        }
+        .record-btn:active { transform: scale(0.92); background: #c0392b; }
+        .record-btn.recording { background: #2ecc71; box-shadow: 0 0 30px rgba(46, 204, 113, 0.6); animation: pulse 1s infinite; }
+        .record-btn.disabled { opacity: 0.5; background: #555; pointer-events: none; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+
+        .mood-selector { display: flex; gap: 30px; background: rgba(0,0,0,0.7); backdrop-filter: blur(10px); padding: 12px 24px; border-radius: 50px; border: 1px solid #333; }
+        .mood-btn { font-size: 32px; background: none; border: none; cursor: pointer; transition: transform 0.1s; filter: grayscale(1); opacity: 0.5; }
+        .mood-btn.selected { filter: grayscale(0); opacity: 1; transform: scale(1.2); }
+        .mood-btn:active { transform: scale(1.5); }
+        .timer-badge { background: rgba(0,0,0,0.6); padding: 4px 14px; border-radius: 20px; font-size: 14px; font-variant-numeric: tabular-nums; color: #fff; border: 1px solid #444; }
+
+        /* === GALERIE ANSICHT === */
+        #gallery-view { padding: 12px 16px 100px; background: #121217; }
+        .gallery-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .gallery-item { position: relative; aspect-ratio: 9 / 16; background: #1e1e26; border-radius: 12px; overflow: hidden; cursor: pointer; border: 1px solid #2a2a35; }
+        .gallery-item video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+        .gallery-item .mood-emoji { position: absolute; bottom: 4px; right: 4px; background: rgba(0,0,0,0.7); border-radius: 30px; padding: 2px 8px; font-size: 14px; backdrop-filter: blur(4px); }
+        .gallery-item .delete-btn { position: absolute; top: 4px; right: 4px; background: rgba(255,0,0,0.8); border: none; color: #fff; border-radius: 30px; width: 24px; height: 24px; font-size: 14px; display: flex; align-items: center; justify-content: center; cursor: pointer; backdrop-filter: blur(4px); }
+        .empty-state { grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: #555; font-size: 16px; }
+
+        /* === POPUP PLAYER (NEU) === */
+        #playerModal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95);
+            z-index: 999; display: none; align-items: center; justify-content: center; flex-direction: column;
+            backdrop-filter: blur(10px);
+        }
+        #playerModal.active { display: flex; }
+        #playerModal video { width: 100%; max-height: 90%; background: #000; object-fit: contain; }
+        .modal-close {
+            position: absolute; top: 40px; right: 20px; font-size: 36px; color: #fff; 
+            background: rgba(255,255,255,0.1); width: 50px; height: 50px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; cursor: pointer;
+            border: 1px solid #444; z-index: 10;
+        }
+        .modal-close:active { background: rgba(255,255,255,0.3); }
+
+        /* Bottom Nav */
+        .bottom-nav { display: flex; background: #1a1a22; border-top: 1px solid #2a2a35; flex-shrink: 0; padding-bottom: env(safe-area-inset-bottom); }
+        .bottom-nav button { flex: 1; padding: 12px 0 10px; background: none; border: none; color: #777; font-size: 12px; font-weight: 500; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; transition: color 0.1s; border-top: 3px solid transparent; }
+        .bottom-nav button .icon { font-size: 22px; line-height: 1; }
+        .bottom-nav button.active { color: #f1c40f; border-top-color: #f1c40f; background: rgba(241, 196, 15, 0.05); }
+        .bottom-nav button:active { background: #2a2a35; }
+        ::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="header">
+        <h1>📖 Tagebuch</h1>
+        <div class="header-actions">
+            <button id="exportBtn">📦 Export</button>
+            <button id="importBtn">📂 Import</button>
+            <input type="file" id="fileInput" accept=".zip" style="display:none">
+        </div>
+    </div>
+
+    <!-- KAMERA (NEU: mit Platzhalter) -->
+    <div id="camera-view" class="view active">
+        <div class="camera-placeholder" id="cameraPlaceholder">
+            <span>📷</span>
+            <p>Drücke den roten Knopf<br>zum Starten der Kamera</p>
+        </div>
+        <video id="videoPreview" class="video-preview" autoplay playsinline muted></video>
+        
+        <div class="camera-controls">
+            <div class="timer-badge" id="timerDisplay">00:00</div>
+            <button class="record-btn" id="recordBtn">● Aufn.</button>
+            <div class="mood-selector">
+                <button class="mood-btn selected" data-mood="happy">😊</button>
+                <button class="mood-btn" data-mood="neutral">😐</button>
+                <button class="mood-btn" data-mood="sad">😔</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GALERIE -->
+    <div id="gallery-view" class="view">
+        <div class="gallery-grid" id="galleryGrid">
+            <div class="empty-state">Noch keine Einträge.<br>🎥 Nimm dein erstes Video auf!</div>
+        </div>
+    </div>
+
+    <!-- NAV -->
+    <div class="bottom-nav">
+        <button id="navCamera" class="active"><span class="icon">📷</span> Aufnehmen</button>
+        <button id="navGallery"><span class="icon">🖼️</span> Galerie</button>
+    </div>
+</div>
+
+<!-- POPUP PLAYER (NEU) -->
+<div id="playerModal">
+    <div class="modal-close" id="modalClose">✕</div>
+    <video id="modalVideo" controls playsinline autoplay></video>
+</div>
+
+<script>
+    (async function() {
+        "use strict";
+
+        // --- DOM REFS ---
+        const videoPreview = document.getElementById('videoPreview');
+        const placeholder = document.getElementById('cameraPlaceholder');
+        const recordBtn = document.getElementById('recordBtn');
+        const timerDisplay = document.getElementById('timerDisplay');
+        const galleryGrid = document.getElementById('galleryGrid');
+        const navCamera = document.getElementById('navCamera');
+        const navGallery = document.getElementById('navGallery');
+        const cameraView = document.getElementById('camera-view');
+        const galleryView = document.getElementById('gallery-view');
+        const exportBtn = document.getElementById('exportBtn');
+        const importBtn = document.getElementById('importBtn');
+        const fileInput = document.getElementById('fileInput');
+        const modal = document.getElementById('playerModal');
+        const modalVideo = document.getElementById('modalVideo');
+        const modalClose = document.getElementById('modalClose');
+
+        // --- STATE ---
+        let stream = null;
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let isRecording = false;
+        let timerInterval = null;
+        let seconds = 0;
+        let selectedMood = 'happy';
+        let currentModalUrl = null; // für cleanup
+        const moodBtns = document.querySelectorAll('.mood-btn');
+
+        // --- OPFS ---
+        let rootDir = null;
+        let videoDir = null;
+        async function initOPFS() {
+            try {
+                rootDir = await navigator.storage.getDirectory();
+                videoDir = await rootDir.getDirectoryHandle('videos', { create: true });
+            } catch (e) { alert('OPFS nicht unterstützt. Bitte iOS 16.4+ oder Chrome.'); throw e; }
+        }
+        await initOPFS();
+
+        // --- METADATEN ---
+        async function loadMetadata() {
+            try {
+                const fileHandle = await rootDir.getFileHandle('metadata.json', { create: true });
+                const file = await fileHandle.getFile();
+                if (file.size === 0) return [];
+                return JSON.parse(await file.text());
+            } catch { return []; }
+        }
+        async function saveMetadata(metadata) {
+            const fileHandle = await rootDir.getFileHandle('metadata.json', { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(JSON.stringify(metadata, null, 2));
+            await writable.close();
+        }
+
+        // --- VIDEO SPEICHERN ---
+        async function saveVideoToOPFS(blob, mood) {
+            const id = Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+            const filename = id + '.mp4';
+            const fileHandle = await videoDir.getFileHandle(filename, { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            const metadata = await loadMetadata();
+            metadata.push({ id, filename, timestamp: Date.now(), mood, date: new Date().toLocaleDateString('de-DE') });
+            await saveMetadata(metadata);
+            return id;
+        }
+
+        async function deleteVideo(id) {
+            let metadata = await loadMetadata();
+            const entry = metadata.find(m => m.id === id);
+            if (!entry) return false;
+            try { await videoDir.removeEntry(entry.filename); } catch(e) {}
+            metadata = metadata.filter(m => m.id !== id);
+            await saveMetadata(metadata);
+            return true;
+        }
+
+        // --- KAMERA LOGIK (NUR AUF ANFRAGE) ---
+        async function startCamera() {
+            if (stream) return true; // Läuft schon
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: { ideal: 720 } },
+                    audio: true
+                });
+                videoPreview.srcObject = stream;
+                videoPreview.classList.add('active');
+                placeholder.style.display = 'none';
+                recordBtn.classList.remove('disabled');
+                return true;
+            } catch(e) {
+                alert('Kamera/Mikrofon Zugriff verweigert. Bitte erlaube es in den Browser-Einstellungen.');
+                return false;
+            }
+        }
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+                videoPreview.srcObject = null;
+                videoPreview.classList.remove('active');
+                placeholder.style.display = 'flex';
+                recordBtn.classList.add('disabled');
+            }
+        }
+
+        // --- RECORDING (startet jetzt automatisch die Kamera, falls nötig) ---
+        async function startRecording() {
+            // 1. Kamera starten (falls nicht aktiv)
+            const camReady = await startCamera();
+            if (!camReady) return;
+
+            // 2. Aufnahme starten
+            recordedChunks = [];
+            seconds = 0;
+            timerDisplay.textContent = '00:00';
+            const mimeType = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : 'video/webm;codecs=vp9,opus';
+            mediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
+            mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+            mediaRecorder.onstop = async () => {
+                if (recordedChunks.length > 0) {
+                    const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType });
+                    await saveVideoToOPFS(blob, selectedMood);
+                    recordedChunks = [];
+                    switchView('gallery');
+                    renderGallery();
+                }
+                clearInterval(timerInterval);
+                timerDisplay.textContent = '00:00';
+                recordBtn.textContent = '● Aufn.';
+                recordBtn.classList.remove('recording');
+                isRecording = false;
+                // Kamera läuft weiter (Previe bleibt), aber sie wird nicht gestoppt.
+            };
+            mediaRecorder.start(1000);
+            isRecording = true;
+            recordBtn.textContent = '⏹ Stop';
+            recordBtn.classList.add('recording');
+            timerInterval = setInterval(() => {
+                seconds++;
+                const mins = String(Math.floor(seconds / 60)).padStart(2, '0');
+                const secs = String(seconds % 60).padStart(2, '0');
+                timerDisplay.textContent = `${mins}:${secs}`;
+            }, 1000);
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                clearInterval(timerInterval);
+            }
+        }
+
+        // --- NAVIGATION ---
+        function switchView(view) {
+            if (view === 'camera') {
+                cameraView.classList.add('active');
+                galleryView.classList.remove('active');
+                navCamera.classList.add('active');
+                navGallery.classList.remove('active');
+                // Kamera wird NICHT automatisch gestartet. Nur wenn stream existiert, zeigen wir ihn.
+                if (stream) {
+                    videoPreview.classList.add('active');
+                    placeholder.style.display = 'none';
+                    recordBtn.classList.remove('disabled');
+                } else {
+                    videoPreview.classList.remove('active');
+                    placeholder.style.display = 'flex';
+                    recordBtn.classList.add('disabled');
+                }
+                // Falls noch aufgenommen wird, stoppen
+                if (isRecording) {
+                    stopRecording();
+                    recordBtn.textContent = '● Aufn.';
+                    recordBtn.classList.remove('recording');
+                    isRecording = false;
+                    clearInterval(timerInterval);
+                    timerDisplay.textContent = '00:00';
+                }
+            } else {
+                cameraView.classList.remove('active');
+                galleryView.classList.add('active');
+                navCamera.classList.remove('active');
+                navGallery.classList.add('active');
+                // Kamera läuft im Hintergrund weiter (optional), aber wir müssen sie nicht stoppen.
+                // Wenn der Nutzer sie nicht nutzt, verbraucht sie aber Akku. Also: Stoppen, wenn wir die Galerie öffnen.
+                stopCamera(); // <-- Das spart Akku! Beim Zurück zur Kamera wird sie neu gestartet (über den Button).
+                renderGallery();
+            }
+        }
+
+        // --- MODAL (POPUP PLAYER) ---
+        function openModal(fileHandle) {
+            fileHandle.getFile().then(file => {
+                const url = URL.createObjectURL(file);
+                currentModalUrl = url;
+                modalVideo.src = url;
+                modal.classList.add('active');
+                modalVideo.play();
+            }).catch(err => {
+                alert('Video konnte nicht geladen werden.');
+                console.error(err);
+            });
+        }
+
+        function closeModal() {
+            modal.classList.remove('active');
+            modalVideo.pause();
+            if (currentModalUrl) {
+                URL.revokeObjectURL(currentModalUrl);
+                currentModalUrl = null;
+            }
+            modalVideo.src = '';
+        }
+        modalClose.addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeModal();
+        });
+
+        // --- GALERIE RENDERN (mit Klick auf Popup) ---
+        async function renderGallery() {
+            const metadata = await loadMetadata();
+            galleryGrid.innerHTML = '';
+            if (metadata.length === 0) {
+                galleryGrid.innerHTML = '<div class="empty-state">Noch keine Einträge.<br>🎥 Nimm dein erstes Video auf!</div>';
+                return;
+            }
+            metadata.sort((a,b) => b.timestamp - a.timestamp);
+            for (let item of metadata) {
+                const div = document.createElement('div');
+                div.className = 'gallery-item';
+                try {
+                    const fileHandle = await videoDir.getFileHandle(item.filename);
+                    const file = await fileHandle.getFile();
+                    const url = URL.createObjectURL(file);
+                    const video = document.createElement('video');
+                    video.src = url;
+                    video.preload = 'metadata';
+                    video.muted = true;
+                    video.playsInline = true;
+                    div.appendChild(video);
+
+                    // Klick auf das gesamte Element öffnet den Popup-Player
+                    div.addEventListener('click', () => {
+                        openModal(fileHandle);
+                    });
+
+                    // Mood Emoji
+                    const moodSpan = document.createElement('span');
+                    moodSpan.className = 'mood-emoji';
+                    if (item.mood === 'happy') moodSpan.textContent = '😊';
+                    else if (item.mood === 'sad') moodSpan.textContent = '😔';
+                    else moodSpan.textContent = '😐';
+                    div.appendChild(moodSpan);
+
+                    // Delete Button
+                    const delBtn = document.createElement('button');
+                    delBtn.className = 'delete-btn';
+                    delBtn.textContent = '✕';
+                    delBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        if (confirm('Eintrag löschen?')) {
+                            await deleteVideo(item.id);
+                            renderGallery();
+                        }
+                    });
+                    div.appendChild(delBtn);
+                } catch(e) {
+                    div.innerHTML = `<div style="padding:20px;color:#888;">⚠️ Fehler</div>`;
+                }
+                galleryGrid.appendChild(div);
+            }
+        }
+
+        // --- BUTTONS / EVENTS ---
+
+        // RECORD Button: Startet Kamera (falls nötig) + Aufnahme
+        recordBtn.addEventListener('click', () => {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording(); // startet automatisch die Kamera, falls aus
+            }
+        });
+
+        // Mood
+        moodBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                moodBtns.forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                selectedMood = btn.dataset.mood;
+            });
+        });
+
+        // Navigation
+        navCamera.addEventListener('click', () => switchView('camera'));
+        navGallery.addEventListener('click', () => switchView('gallery'));
+
+        // --- EXPORT / IMPORT (unverändert) ---
+        exportBtn.addEventListener('click', async () => {
+            const metadata = await loadMetadata();
+            if (metadata.length === 0) { alert('Keine Einträge.'); return; }
+            const zip = new JSZip();
+            const videoFolder = zip.folder('videos');
+            zip.file('metadata.json', JSON.stringify(metadata, null, 2));
+            for (let item of metadata) {
+                try {
+                    const fileHandle = await videoDir.getFileHandle(item.filename);
+                    const file = await fileHandle.getFile();
+                    videoFolder.file(item.filename, await file.arrayBuffer());
+                } catch(e) {}
+            }
+            const zipBlob = await zip.generateAsync({ type: 'blob' });
+            const url = URL.createObjectURL(zipBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Tagebuch_Backup_${new Date().toISOString().slice(0,10)}.zip`;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+
+        importBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            try {
+                const zip = await JSZip.loadAsync(file);
+                const metaFile = zip.file('metadata.json');
+                if (!metaFile) { alert('Ungültiges Backup.'); return; }
+                const importedMeta = JSON.parse(await metaFile.async('string'));
+                const videoFiles = zip.folder('videos');
+                for (let item of importedMeta) {
+                    const fileData = videoFiles.file(item.filename);
+                    if (fileData) {
+                        const blob = await fileData.async('blob');
+                        const fileHandle = await videoDir.getFileHandle(item.filename, { create: true });
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(blob);
+                        await writable.close();
+                    }
+                }
+                let existing = await loadMetadata();
+                const newIds = new Set(importedMeta.map(m => m.id));
+                existing = existing.filter(m => !newIds.has(m.id));
+                await saveMetadata([...existing, ...importedMeta]);
+                alert(`✅ ${importedMeta.length} Einträge importiert!`);
+                renderGallery();
+            } catch(err) { alert('Import fehlgeschlagen: ' + err.message); }
+            fileInput.value = '';
+        });
+
+        // --- INIT ---
+        // Kamera ist AUS. Platzhalter wird gezeigt.
+        // Galerie wird geladen.
+        await renderGallery();
+        // Kamera-Tab ist standardmäßig aktiv, aber ohne Stream.
+        // Placeholder ist sichtbar, recordBtn ist disabled (optisch grau).
+        recordBtn.classList.add('disabled');
+
+        // Cleanup bei Tab-Wechsel / Schließen
+        window.addEventListener('beforeunload', () => {
+            if (isRecording) stopRecording();
+            stopCamera();
+            closeModal();
+        });
+
+        console.log('📖 App ready. Kamera startet NUR bei Klick auf Aufnehmen.');
+    })();
+</script>
+</body>
+</html>
